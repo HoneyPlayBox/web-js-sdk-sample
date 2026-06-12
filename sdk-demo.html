@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HoneyPlayBox WASM SDK Demo</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f3f6f8;
+      color: #17212b;
+    }
+
+    main {
+      display: grid;
+      gap: 14px;
+      max-width: 760px;
+    }
+
+    button,
+    input,
+    textarea {
+      min-height: 34px;
+      border: 1px solid #bdc8d4;
+      border-radius: 7px;
+      padding: 0 10px;
+      font: inherit;
+    }
+
+    button {
+      background: #146b5c;
+      color: white;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:disabled {
+      background: #8fa29e;
+      cursor: not-allowed;
+    }
+
+    section {
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      background: white;
+      padding: 14px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 128px;
+      padding: 10px;
+      box-sizing: border-box;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      resize: vertical;
+    }
+
+    .device-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .device-item {
+      display: grid;
+      grid-template-columns: auto 40px 1fr minmax(110px, 150px) auto;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      min-height: 64px;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      background: #f8fbfc;
+      color: #17212b;
+      padding: 8px 10px;
+      text-align: left;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+
+    .device-item.is-selected {
+      border-color: #146b5c;
+      box-shadow: 0 0 0 2px rgba(20, 107, 92, 0.16);
+    }
+
+    .device-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: #e8eef2;
+      object-fit: cover;
+    }
+
+    .device-name {
+      font-weight: 700;
+    }
+
+    .device-id {
+      color: #607181;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .device-meta {
+      color: #3f5364;
+      font-size: 12px;
+    }
+
+    .battery {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .battery-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #3f5364;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .battery-track {
+      height: 8px;
+      border-radius: 999px;
+      background: #dde6ec;
+      overflow: hidden;
+    }
+
+    .battery-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: #1f8a70;
+      transition: width 180ms ease;
+    }
+
+    .battery.is-low .battery-fill {
+      background: #c94f4f;
+    }
+
+    .battery.is-unknown .battery-fill {
+      background: #a8b5bf;
+    }
+
+    .device-status {
+      color: #146b5c;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .empty {
+      color: #607181;
+      margin: 10px 0 0;
+    }
+
+    pre {
+      min-height: 180px;
+      max-height: 360px;
+      overflow: auto;
+      border-radius: 8px;
+      background: #101820;
+      color: #d5f2e3;
+      padding: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>HoneyPlayBox WASM SDK Demo</h1>
+
+    <section>
+      <div class="row">
+        <button id="check">Check BLE</button>
+        <button id="discover">Discover</button>
+        <button id="connect" disabled>Connect Selected</button>
+        <button id="sendCommand">Send Command</button>
+        <button id="stopCommand">Stop Command</button>
+        <button id="readBattery">Read Battery</button>
+        <button id="disconnect">Disconnect</button>
+      </div>
+      <div id="deviceList" class="device-list" aria-label="Discovered devices"></div>
+      <p id="emptyDevices" class="empty">No devices discovered yet.</p>
+    </section>
+
+    <section>
+      <div class="stack">
+        <div class="row">
+          <label>Vibration <input id="vibration" type="number" min="0" max="100" value="50"></label>
+          <label>Motor <input id="motor" type="number" min="1" max="4" value="1"></label>
+          <label>Duration(ms) <input id="duration" type="number" min="0" step="100" value="1000"></label>
+          <button id="fillCommands" type="button">Use Form Values</button>
+        </div>
+        <label class="stack">
+          Command array
+          <textarea id="commands" spellcheck="false"></textarea>
+        </label>
+      </div>
+    </section>
+
+    <pre id="log"></pre>
+  </main>
+
+  <script type="module">
+    import { HoneyPlayBox } from "//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js";
+
+    const connector = new HoneyPlayBox.SDK.ToyConnector();
+    const log = document.querySelector("#log");
+    const deviceList = document.querySelector("#deviceList");
+    const emptyDevices = document.querySelector("#emptyDevices");
+    const connectButton = document.querySelector("#connect");
+    const commandsInput = document.querySelector("#commands");
+    const discoveredDevices = new Map();
+    let selectedToyId = "";
+
+    function write(message, value) {
+      const body = value ? `\n${JSON.stringify(value, null, 2)}` : "";
+      log.textContent = `${new Date().toLocaleTimeString()} ${message}${body}\n\n${log.textContent}`;
+    }
+
+    function getDeviceStatus(toyId) {
+      const connectedToy = connector.getToy(toyId);
+      if (connectedToy?.connected) {
+        return "Connected";
+      }
+      return selectedToyId === toyId ? "Selected" : "";
+    }
+
+    function getBatteryLevel(toyId) {
+      const connectedToy = connector.getToy(toyId);
+      const liveLevel = connectedToy?.batteryLevel;
+      if (Number.isFinite(liveLevel)) {
+        return Math.max(0, Math.min(100, Math.round(liveLevel)));
+      }
+      const cachedLevel = discoveredDevices.get(toyId)?.batteryLevel;
+      return Number.isFinite(cachedLevel) ? Math.max(0, Math.min(100, Math.round(cachedLevel))) : null;
+    }
+
+    function updateDeviceBattery(toyId, batteryLevel) {
+      if (!toyId || !Number.isFinite(Number(batteryLevel))) {
+        return;
+      }
+      const device = discoveredDevices.get(toyId);
+      if (device) {
+        discoveredDevices.set(toyId, {
+          ...device,
+          batteryLevel: Math.max(0, Math.min(100, Math.round(Number(batteryLevel))))
+        });
+      }
+      renderDeviceList();
+    }
+
+    function updateConnectState() {
+      connectButton.disabled = !selectedToyId;
+    }
+
+    function getFormCommand() {
+      return {
+        toyId: selectedToyId || undefined,
+        vibration: Number(document.querySelector("#vibration").value),
+        motor: Number(document.querySelector("#motor").value),
+        duration: Number(document.querySelector("#duration").value),
+        function: HoneyPlayBox.SDK.ToyFunctions.vibration
+      };
+    }
+
+    function setCommandArrayFromForm() {
+      commandsInput.value = JSON.stringify([getFormCommand()], null, 2);
+    }
+
+    function parseCommandArray() {
+      const commands = JSON.parse(commandsInput.value || "[]");
+      if (!Array.isArray(commands)) {
+        throw new Error("Commands must be a JSON array.");
+      }
+      if (commands.length === 0) {
+        throw new Error("Add at least one command.");
+      }
+      return commands.map((command) => ({
+        ...command,
+        toyId: command.toyId || selectedToyId || undefined
+      }));
+    }
+
+    function renderDeviceList() {
+      const devices = Array.from(discoveredDevices.values());
+      emptyDevices.hidden = devices.length > 0;
+      deviceList.replaceChildren(...devices.map((device) => {
+        const item = document.createElement("label");
+        item.className = "device-item";
+        item.classList.toggle("is-selected", device.toyId === selectedToyId);
+
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "device";
+        radio.checked = device.toyId === selectedToyId;
+
+        const avatar = document.createElement("img");
+        avatar.className = "device-avatar";
+        avatar.alt = "";
+        avatar.src = device.avatar || "https://sdk.honeyplaybox.com/prod/product/logo/default.png";
+
+        const text = document.createElement("div");
+        const name = document.createElement("div");
+        name.className = "device-name";
+        name.textContent = device.name;
+        const id = document.createElement("div");
+        id.className = "device-id";
+        id.textContent = `Toy ID: ${device.toyId}`;
+        const meta = document.createElement("div");
+        meta.className = "device-meta";
+        meta.textContent = `Features: ${device.features.map(formatToyFeature).join(", ") || "None"}`;
+        text.append(name, id, meta);
+
+        const batteryLevel = getBatteryLevel(device.toyId);
+        const battery = document.createElement("div");
+        battery.className = "battery";
+        battery.classList.toggle("is-low", batteryLevel !== null && batteryLevel <= 20);
+        battery.classList.toggle("is-unknown", batteryLevel === null);
+        const batteryLabel = document.createElement("div");
+        batteryLabel.className = "battery-label";
+        const batteryText = document.createElement("span");
+        batteryText.textContent = "Battery";
+        const batteryValue = document.createElement("span");
+        batteryValue.textContent = batteryLevel === null ? "--" : `${batteryLevel}%`;
+        batteryLabel.append(batteryText, batteryValue);
+        const batteryTrack = document.createElement("div");
+        batteryTrack.className = "battery-track";
+        const batteryFill = document.createElement("div");
+        batteryFill.className = "battery-fill";
+        batteryFill.style.width = `${batteryLevel ?? 0}%`;
+        batteryTrack.append(batteryFill);
+        battery.append(batteryLabel, batteryTrack);
+
+        const status = document.createElement("div");
+        status.className = "device-status";
+        status.textContent = getDeviceStatus(device.toyId);
+
+        item.append(radio, avatar, text, battery, status);
+        item.addEventListener("change", () => {
+          selectedToyId = device.toyId;
+          updateConnectState();
+          renderDeviceList();
+          write("selected", device);
+        });
+        return item;
+      }));
+      updateConnectState();
+    }
+
+    async function runAction(label, action) {
+      try {
+        return await action();
+      } catch (error) {
+        write(`${label} failed`, { message: error.message });
+        return null;
+      }
+    }
+
+    function getFeedbackMessage(feedback) {
+      if (feedback.kind === "battery") {
+        return "battery feedback";
+      }
+      if (feedback.kind === "pressure") {
+        return "pressure feedback";
+      }
+      if (feedback.value !== null && feedback.value !== undefined) {
+        return `${feedback.kind} feedback`;
+      }
+      return "feedback";
+    }
+
+    function formatToyFeature(feature) {
+      const match = Object.entries(HoneyPlayBox.SDK.ToyFunctions)
+        .find(([, value]) => value === feature);
+      return match ? `ToyFunctions.${match[0]}` : "ToyFunctions.unknown";
+    }
+
+    connector.onFeedback((feedback) => {
+      if (feedback.kind === "battery") {
+        updateDeviceBattery(feedback.toyId, feedback.value);
+      }
+      write(getFeedbackMessage(feedback), {
+        toyId: feedback.toyId,
+        name: feedback.name,
+        kind: feedback.kind,
+        value: feedback.value,
+        unit: feedback.unit,
+        time: feedback.time
+      });
+    });
+
+    connector.addEventListener("connect", (event) => {
+      renderDeviceList();
+      write("connect state", {
+        toyId: event.detail.toyId,
+        name: event.detail.name,
+        status: event.detail.status,
+        attempt: event.detail.attempt,
+        delay: event.detail.delay,
+        message: event.detail.message,
+        time: event.detail.time
+      });
+    });
+
+    document.querySelector("#check").addEventListener("click", async () => {
+      await runAction("check", async () => {
+        write("ble support", await HoneyPlayBox.SDK.isBleSupported());
+      });
+    });
+
+    document.querySelector("#discover").addEventListener("click", async () => {
+      await runAction("discover", async () => {
+        const devices = await connector.discoverDevices();
+        for (const device of devices) {
+          discoveredDevices.set(device.toyId, device);
+          selectedToyId = device.toyId;
+        }
+        renderDeviceList();
+        write("discovered", devices);
+      });
+    });
+
+    document.querySelector("#connect").addEventListener("click", async () => {
+      await runAction("connect", async () => {
+        const connectedToy = await connector.connectDevice(selectedToyId);
+        updateDeviceBattery(selectedToyId, connectedToy.batteryLevel);
+        setCommandArrayFromForm();
+        renderDeviceList();
+        write("connected", connectedToy.toJSON());
+      });
+    });
+
+    document.querySelector("#fillCommands").addEventListener("click", () => {
+      setCommandArrayFromForm();
+      write("command array updated", JSON.parse(commandsInput.value));
+    });
+
+    document.querySelector("#sendCommand").addEventListener("click", async () => {
+      await runAction("send command", async () => {
+        const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+        if (!targetToy) {
+          throw new Error("Select and connect a device first.");
+        }
+        const result = await targetToy.sendCommand(parseCommandArray());
+        write("commands sent", {
+          toyId: result.toyId,
+          name: result.name,
+          commandCount: result.commandCount,
+          time: result.time
+        });
+      });
+    });
+
+    document.querySelector("#stopCommand").addEventListener("click", async () => {
+      await runAction("stop command", async () => {
+        const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+        if (!targetToy) {
+          throw new Error("Select and connect a device first.");
+        }
+        const result = await targetToy.stopCommand();
+        write("stop command sent", {
+          toyId: result.toyId,
+          name: result.name,
+          action: result.action,
+          commandCount: result.commandCount,
+          time: result.time
+        });
+      });
+    });
+
+    document.querySelector("#readBattery").addEventListener("click", async () => {
+      await runAction("read battery", async () => {
+        const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+        if (!targetToy) {
+          throw new Error("Select and connect a device first.");
+        }
+        const batteryLevel = await targetToy.readBatteryLevel();
+        updateDeviceBattery(targetToy.id, batteryLevel);
+        write("battery read", {
+          toyId: targetToy.id,
+          name: targetToy.name,
+          kind: "battery",
+          value: batteryLevel,
+          unit: batteryLevel === null ? null : "percent",
+          time: Date.now()
+        });
+      });
+    });
+
+    document.querySelector("#disconnect").addEventListener("click", async () => {
+      await runAction("disconnect", async () => {
+        const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+        await targetToy?.disconnect();
+        renderDeviceList();
+        write("disconnected", { toyId: selectedToyId || null, time: Date.now() });
+      });
+    });
+
+    renderDeviceList();
+    setCommandArrayFromForm();
+  </script>
+</body>
+
+</html>
