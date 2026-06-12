@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HoneyPlayBox WASM SDK Demo</title>
+  <title>HoneyPlayBox SDK Demo</title>
   <style>
     body {
       margin: 0;
@@ -184,7 +184,7 @@
 
 <body>
   <main>
-    <h1>HoneyPlayBox WASM SDK Demo</h1>
+    <h1>HoneyPlayBox SDK Demo</h1>
 
     <section>
       <div class="row">
@@ -217,9 +217,8 @@
 
     <pre id="log"></pre>
   </main>
-
-  <script type="module">
-    import { HoneyPlayBox } from "//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js";
+  <script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+  <script>
 
     const connector = new HoneyPlayBox.SDK.ToyConnector();
     const log = document.querySelector("#log");

@@ -2,21 +2,20 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const root = path.resolve(__dirname, "..", "..");
+const root = path.resolve(__dirname);
 const port = Number(process.env.PORT || 5184);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".map": "application/json; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".wasm": "application/wasm"
+  ".json": "application/json; charset=utf-8"
 };
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, `http://localhost:${port}`);
   const requestedPath = decodeURIComponent(
-    url.pathname === "/" || url.pathname === "/sdk-demo.html" ? "/jssdk-wasm/sample/sdk-demo.html" : url.pathname
+    url.pathname === "/" || url.pathname === "/sdk-demo.html" ? "/sdk-demo.html" : url.pathname
   );
   const filePath = path.normalize(path.join(root, requestedPath));
 
@@ -42,5 +41,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`HoneyPlayBox WASM SDK sample: http://localhost:${port}/sdk-demo.html`);
+  console.log(`HoneyPlayBox SDK sample: http://localhost:${port}/sdk-demo.html`);
 });

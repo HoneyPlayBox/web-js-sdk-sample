@@ -42,10 +42,10 @@ directly from disk.
 
 ## Integration Notes
 
-Import the SDK as an ES module:
+Load the online SDK:
 
-```js
-import { HoneyPlayBox } from "//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js";
+```html
+<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
 ```
 
 Create a connector:

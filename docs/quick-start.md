@@ -17,9 +17,8 @@ Use this guide to add HoneyPlayBox WASM SDK to a browser page.
 <button id="send">Send</button>
 <button id="stop">Stop</button>
 
-<script type="module">
-  import { HoneyPlayBox } from "//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js";
-
+<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+<script>
   const connector = new HoneyPlayBox.SDK.ToyConnector();
   let selectedToyId = "";
   let toy = null;

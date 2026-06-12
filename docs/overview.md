@@ -5,9 +5,7 @@ JS SDK while moving low-level SDK logic into WebAssembly.
 
 ## Import
 
-```js
-import { HoneyPlayBox } from "//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js";
-```
+```html`n<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>`n```
 
 The SDK is exposed under the `HoneyPlayBox.SDK` namespace.
 
