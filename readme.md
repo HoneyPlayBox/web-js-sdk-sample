@@ -18,10 +18,10 @@ the WebAssembly module directly.
 
 Read the full WASM SDK documentation in the sibling `docs` folder:
 
-- [Overview](../docs/overview.md)
-- [Quick Start](../docs/quick-start.md)
-- [Device Flow](../docs/device-flow.md)
-- [API Reference](../docs/api-reference.md)
+- [Overview](./docs/overview.md)
+- [Quick Start](./docs/quick-start.md)
+- [Device Flow](./docs/device-flow.md)
+- [API Reference](./docs/api-reference.md)
 
 ## Run The Sample
 
