@@ -39,10 +39,9 @@ Use this guide to add HoneyPlayBox WASM SDK to a browser page.
   document.querySelector("#send").addEventListener("click", async () => {
     await toy.sendCommand([
       {
-        vibration: 60,
-        motor: 1,
+        value: 60,
         duration: 1000,
-        function: HoneyPlayBox.SDK.ToyFunctions.vibration
+        function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
       }
     ]);
   });
@@ -56,9 +55,12 @@ Use this guide to add HoneyPlayBox WASM SDK to a browser page.
 ## Notes
 
 - `discoverDevices()` opens the browser permission prompt.
-- `sendCommand()` automatically sends stop when the command duration is greater
-  than `0` and the duration ends.
-- `duration: 0` keeps the toy running until `stopCommand()` is called.
+- `Vibrate` does not automatically send stop after the command duration.
+- `Constrict` automatically sends stop when `duration > 0`.
+- Call `stopCommand()` when the application needs to stop the current action.
+- `ToyCommandMode.normal` sends immediately. `ToyCommandMode.queue` sends queued command payloads in order.
+- Switching command mode clears waiting queued commands and does not send stop.
 - One connector can manage multiple connected toys.
 - Battery feedback is emitted as `kind: "battery"` when available.
 - Browser BLE permission and GATT I/O are performed through a JavaScript bridge.
+

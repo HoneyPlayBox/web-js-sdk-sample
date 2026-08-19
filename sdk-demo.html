@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 
 <head>
@@ -170,6 +170,54 @@
       margin: 10px 0 0;
     }
 
+    .queue-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .queue-title {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .queue-meta {
+      color: #3f5364;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .queue-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .queue-item {
+      display: grid;
+      gap: 6px;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      background: #f8fbfc;
+      padding: 10px;
+    }
+
+    .queue-item-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: space-between;
+      color: #17212b;
+      font-weight: 700;
+    }
+
+    .queue-command {
+      color: #3f5364;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
     pre {
       min-height: 180px;
       max-height: 360px;
@@ -198,20 +246,48 @@
       </div>
       <div id="deviceList" class="device-list" aria-label="Discovered devices"></div>
       <p id="emptyDevices" class="empty">No devices discovered yet.</p>
+      <p id="actionStatus" class="empty" aria-live="polite"></p>
     </section>
 
     <section>
       <div class="stack">
         <div class="row">
-          <label>Vibration <input id="vibration" type="number" min="0" max="100" value="50"></label>
-          <label>Motor <input id="motor" type="number" min="1" max="4" value="1"></label>
-          <label>Duration(ms) <input id="duration" type="number" min="0" step="100" value="1000"></label>
+          <label>Value <input id="commandValue" type="number" min="0" max="100" value="50"></label>
+          <label>Center <input id="centerPosition" type="number" min="0" max="100" value="40"></label>
+          <label>Amplitude <input id="amplitude" type="number" min="0" max="80" value="40"></label>
+          <label>Speed <input id="speed" type="number" min="0" max="10" value="10"></label>
+          <label>Function <select id="toyFunction"></select></label>
+          <label>Point <select id="stimulusPoint">
+              <option value="">Auto</option>
+              <option value="c">C</option>
+              <option value="g">G</option>
+              <option value="a">A</option>
+              <option value="u">U</option>
+              <option value="o">O</option>
+              <option value="p">P</option>
+            </select></label>
+          <label>Mode <select id="commandMode">
+              <option value="normal">Normal</option>
+              <option value="queue">Queue</option>
+            </select></label>
+          <label>Duration(ms) <input id="duration" type="number" min="0" step="100" value="2000"></label>
           <button id="fillCommands" type="button">Use Form Values</button>
         </div>
         <label class="stack">
           Command array
           <textarea id="commands" spellcheck="false"></textarea>
         </label>
+      </div>
+    </section>
+
+    <section>
+      <div class="stack">
+        <div class="queue-header">
+          <h2 class="queue-title">Command Queue</h2>
+          <span id="queueMeta" class="queue-meta">No selected toy</span>
+        </div>
+        <div id="queueList" class="queue-list" aria-label="Command queue"></div>
+        <p id="emptyQueue" class="empty">No waiting commands.</p>
       </div>
     </section>
 
@@ -224,9 +300,22 @@
     const log = document.querySelector("#log");
     const deviceList = document.querySelector("#deviceList");
     const emptyDevices = document.querySelector("#emptyDevices");
+    const actionStatus = document.querySelector("#actionStatus");
+    const queueMeta = document.querySelector("#queueMeta");
+    const queueList = document.querySelector("#queueList");
+    const emptyQueue = document.querySelector("#emptyQueue");
     const connectButton = document.querySelector("#connect");
     const commandsInput = document.querySelector("#commands");
+    const functionSelect = document.querySelector("#toyFunction");
+    const stimulusPointSelect = document.querySelector("#stimulusPoint");
+    const commandModeSelect = document.querySelector("#commandMode");
+    const commandValueInput = document.querySelector("#commandValue");
+    const centerPositionInput = document.querySelector("#centerPosition");
+    const amplitudeInput = document.querySelector("#amplitude");
+    const speedInput = document.querySelector("#speed");
+    const durationInput = document.querySelector("#duration");
     const discoveredDevices = new Map();
+    const deviceStates = new Map();
     let selectedToyId = "";
 
     function write(message, value) {
@@ -234,12 +323,52 @@
       log.textContent = `${new Date().toLocaleTimeString()} ${message}${body}\n\n${log.textContent}`;
     }
 
+    function setStatus(message = "") {
+      actionStatus.textContent = message;
+    }
+
     function getDeviceStatus(toyId) {
+      const cachedState = deviceStates.get(toyId);
+      if (cachedState) {
+        return cachedState;
+      }
       const connectedToy = connector.getToy(toyId);
       if (connectedToy?.connected) {
         return "Connected";
       }
       return selectedToyId === toyId ? "Selected" : "";
+    }
+
+    function setDeviceStatus(toyId, status) {
+      if (!toyId) {
+        return;
+      }
+      if (status) {
+        deviceStates.set(toyId, status);
+      } else {
+        deviceStates.delete(toyId);
+      }
+      renderDeviceList();
+      renderCommandQueue();
+    }
+
+    function formatConnectionStatus(detail = {}) {
+      if (detail.manual) {
+        return "Disconnected";
+      }
+      switch (detail.status) {
+        case "connected":
+        case "reconnected":
+          return "Connected";
+        case "reconnecting":
+          return `Reconnecting ${detail.attempt || ""}`.trim();
+        case "reconnectError":
+          return "Reconnect failed";
+        case "reconnectStopped":
+          return "Disconnected";
+        default:
+          return detail.autoReconnect ? "Reconnecting" : "Disconnected";
+      }
     }
 
     function getBatteryLevel(toyId) {
@@ -270,18 +399,119 @@
       connectButton.disabled = !selectedToyId;
     }
 
+    function getSelectedToySummary() {
+      const connectedToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+      return connectedToy?.toJSON?.() || discoveredDevices.get(selectedToyId) || null;
+    }
+
+    function getAvailableToyFunctions() {
+      const toy = getSelectedToySummary();
+      const features = Array.isArray(toy?.features) ? toy.features : [];
+      return features.length ? features : [
+        HoneyPlayBox.SDK.ToyFunctions.Vibrate,
+        HoneyPlayBox.SDK.ToyFunctions.Constrict
+      ];
+    }
+
+    function renderFunctionOptions() {
+      const previous = functionSelect.value;
+      const features = getAvailableToyFunctions();
+      functionSelect.replaceChildren(...features.map((feature) => {
+        const option = document.createElement("option");
+        option.value = feature;
+        option.textContent = feature;
+        return option;
+      }));
+      functionSelect.value = features.includes(previous) ? previous : features[0];
+    }
+
+    function renderCommandMode() {
+      const connectedToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+      commandModeSelect.value = connectedToy?.commandMode || HoneyPlayBox.SDK.ToyCommandMode.normal;
+    }
+
+    function applySelectedCommandMode() {
+      const connectedToy = selectedToyId ? connector.getToy(selectedToyId) : null;
+      if (connectedToy) {
+        connectedToy.setCommandMode(commandModeSelect.value);
+      }
+    }
+
     function getFormCommand() {
-      return {
+      const command = {
         toyId: selectedToyId || undefined,
-        vibration: Number(document.querySelector("#vibration").value),
-        motor: Number(document.querySelector("#motor").value),
-        duration: Number(document.querySelector("#duration").value),
-        function: HoneyPlayBox.SDK.ToyFunctions.vibration
+        duration: Number(durationInput.value),
+        function: functionSelect.value || HoneyPlayBox.SDK.ToyFunctions.Vibrate
       };
+      if (command.function === HoneyPlayBox.SDK.ToyFunctions.Position) {
+        command.centerPosition = Number(centerPositionInput.value);
+        command.amplitude = Number(amplitudeInput.value);
+        command.speed = Number(speedInput.value);
+      } else {
+        command.value = Number(commandValueInput.value);
+      }
+      if (stimulusPointSelect.value) {
+        command.target = stimulusPointSelect.value;
+      }
+      return command;
     }
 
     function setCommandArrayFromForm() {
       commandsInput.value = JSON.stringify([getFormCommand()], null, 2);
+    }
+
+    function formatCommandSummary(command) {
+      const parts = [
+        `Function: ${command.function || "Unknown"}`,
+        `Duration: ${command.duration ?? 0}ms`
+      ];
+      if (command.target) {
+        parts.push(`Point: ${String(command.target).toUpperCase()}`);
+      }
+      if (command.value !== undefined) {
+        parts.push(`Value: ${command.value}`);
+      }
+      if (command.centerPosition !== undefined) {
+        parts.push(`Center: ${command.centerPosition}`);
+      }
+      if (command.amplitude !== undefined) {
+        parts.push(`Amplitude: ${command.amplitude}`);
+      }
+      if (command.speed !== undefined) {
+        parts.push(`Speed: ${command.speed}`);
+      }
+      return parts.join(" | ");
+    }
+
+    function renderCommandQueue() {
+      const toy = selectedToyId ? connector.getToy(selectedToyId) : null;
+      const queue = toy?.getCommandQueue?.() || [];
+      queueMeta.textContent = toy
+        ? `${toy.name} | Mode: ${toy.commandMode} | Waiting: ${queue.length}`
+        : "No selected toy";
+      emptyQueue.hidden = queue.length > 0;
+      queueList.replaceChildren(...queue.map((entry) => {
+        const item = document.createElement("div");
+        item.className = "queue-item";
+
+        const head = document.createElement("div");
+        head.className = "queue-item-head";
+        const title = document.createElement("span");
+        title.textContent = `#${entry.position} ${entry.commandId}`;
+        const status = document.createElement("span");
+        status.textContent = entry.status;
+        head.append(title, status);
+
+        const commandRows = entry.commands.map((command) => {
+          const row = document.createElement("div");
+          row.className = "queue-command";
+          row.textContent = formatCommandSummary(command);
+          return row;
+        });
+
+        item.append(head, ...commandRows);
+        return item;
+      }));
     }
 
     function parseCommandArray() {
@@ -356,19 +586,23 @@
         item.addEventListener("change", () => {
           selectedToyId = device.toyId;
           updateConnectState();
+          renderFunctionOptions();
+          renderCommandMode();
           renderDeviceList();
-          write("selected", device);
+          renderCommandQueue();
         });
         return item;
       }));
       updateConnectState();
+      renderCommandQueue();
     }
 
     async function runAction(label, action) {
       try {
+        setStatus("");
         return await action();
       } catch (error) {
-        write(`${label} failed`, { message: error.message });
+        setStatus(`${label} failed: ${error?.message || String(error)}`);
         return null;
       }
     }
@@ -406,50 +640,92 @@
       });
     });
 
-    connector.addEventListener("connect", (event) => {
-      renderDeviceList();
-      write("connect state", {
-        toyId: event.detail.toyId,
-        name: event.detail.name,
-        status: event.detail.status,
-        attempt: event.detail.attempt,
-        delay: event.detail.delay,
-        message: event.detail.message,
-        time: event.detail.time
+    const handleQueueChange = (queueState) => {
+      renderCommandQueue();
+      write("queue change", {
+        toyId: queueState.toyId,
+        name: queueState.name,
+        action: queueState.action,
+        commandId: queueState.commandId,
+        commandMode: queueState.commandMode,
+        queuedCommandCount: queueState.queuedCommandCount,
+        queue: queueState.queue,
+        time: queueState.time
       });
+    };
+    if (typeof connector.onQueueChange === "function") {
+      connector.onQueueChange(handleQueueChange);
+    } else {
+      connector.addEventListener("queuechange", (event) => handleQueueChange(event.detail));
+    }
+
+    connector.addEventListener("connect", (event) => {
+      setDeviceStatus(event.detail.toyId, formatConnectionStatus(event.detail));
+      renderDeviceList();
+    });
+
+    connector.addEventListener("disconnect", (event) => {
+      setDeviceStatus(event.detail.toyId, formatConnectionStatus(event.detail));
     });
 
     document.querySelector("#check").addEventListener("click", async () => {
       await runAction("check", async () => {
-        write("ble support", await HoneyPlayBox.SDK.isBleSupported());
+        await HoneyPlayBox.SDK.isBleSupported();
       });
     });
 
     document.querySelector("#discover").addEventListener("click", async () => {
       await runAction("discover", async () => {
+        setStatus("Requesting device permission...");
         const devices = await connector.discoverDevices();
         for (const device of devices) {
           discoveredDevices.set(device.toyId, device);
+          deviceStates.set(device.toyId, "Discovered");
           selectedToyId = device.toyId;
         }
+        renderFunctionOptions();
+        renderCommandMode();
         renderDeviceList();
-        write("discovered", devices);
+        setStatus(devices.length ? `Discovered ${devices.length} device(s).` : "No configured devices discovered.");
       });
     });
 
     document.querySelector("#connect").addEventListener("click", async () => {
       await runAction("connect", async () => {
+        if (!selectedToyId) {
+          throw new Error("Select a device first.");
+        }
+        connectButton.disabled = true;
         const connectedToy = await connector.connectDevice(selectedToyId);
+        selectedToyId = connectedToy.toyId;
+        setDeviceStatus(selectedToyId, "Connected");
+        applySelectedCommandMode();
         updateDeviceBattery(selectedToyId, connectedToy.batteryLevel);
+        renderFunctionOptions();
+        renderCommandMode();
         setCommandArrayFromForm();
         renderDeviceList();
-        write("connected", connectedToy.toJSON());
+        renderCommandQueue();
       });
+      updateConnectState();
     });
 
     document.querySelector("#fillCommands").addEventListener("click", () => {
       setCommandArrayFromForm();
-      write("command array updated", JSON.parse(commandsInput.value));
+    });
+
+    functionSelect.addEventListener("change", () => {
+      setCommandArrayFromForm();
+    });
+
+    [commandValueInput, centerPositionInput, amplitudeInput, speedInput, durationInput, stimulusPointSelect].forEach((control) => {
+      control.addEventListener("change", setCommandArrayFromForm);
+      control.addEventListener("input", setCommandArrayFromForm);
+    });
+
+    commandModeSelect.addEventListener("change", () => {
+      applySelectedCommandMode();
+      renderCommandQueue();
     });
 
     document.querySelector("#sendCommand").addEventListener("click", async () => {
@@ -458,13 +734,15 @@
         if (!targetToy) {
           throw new Error("Select and connect a device first.");
         }
-        const result = await targetToy.sendCommand(parseCommandArray());
-        write("commands sent", {
-          toyId: result.toyId,
-          name: result.name,
-          commandCount: result.commandCount,
-          time: result.time
+        const commands = parseCommandArray();
+        write("command input", {
+          toyId: targetToy.toyId,
+          name: targetToy.name,
+          commands,
+          time: Date.now()
         });
+        await targetToy.sendCommand(commands);
+        renderCommandQueue();
       });
     });
 
@@ -474,14 +752,8 @@
         if (!targetToy) {
           throw new Error("Select and connect a device first.");
         }
-        const result = await targetToy.stopCommand();
-        write("stop command sent", {
-          toyId: result.toyId,
-          name: result.name,
-          action: result.action,
-          commandCount: result.commandCount,
-          time: result.time
-        });
+        await targetToy.stopCommand();
+        renderCommandQueue();
       });
     });
 
@@ -509,11 +781,14 @@
         const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
         await targetToy?.disconnect();
         renderDeviceList();
-        write("disconnected", { toyId: selectedToyId || null, time: Date.now() });
+        renderCommandQueue();
       });
     });
 
+    renderFunctionOptions();
+    renderCommandMode();
     renderDeviceList();
+    renderCommandQueue();
     setCommandArrayFromForm();
   </script>
 </body>

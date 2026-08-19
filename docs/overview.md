@@ -5,9 +5,13 @@ JS SDK while moving low-level SDK logic into WebAssembly.
 
 ## Import
 
-```html`n<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>`n```
+```html
+<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+```
 
 The SDK is exposed under the `HoneyPlayBox.SDK` namespace.
+
+The online SDK loads its matching online WebAssembly file automatically.
 
 ## Scope
 
@@ -49,17 +53,27 @@ call browser Bluetooth objects or trigger permission prompts.
 
 ## Command Behavior
 
-When `duration` is greater than `0`, the SDK automatically sends stop when the
-longest command duration ends.
+Use `value` for the command value and `function` for the toy function. The SDK
+maps the function to the toy's internal actuator automatically, so integrations
+do not need to pass low-level motor indexes.
 
-When `duration` is `0`, the toy keeps running until a stop operation is sent:
+Normal mode sends each `sendCommand()` call immediately. Queue mode stores each
+call in that toy's own queue, sends one payload at a time, waits for the longest
+`duration` in that payload, and then sends the next payload. Each connected toy
+has an independent queue, so one toy's queued commands do not block another toy.
+Switching between normal mode and queue mode clears commands that are still
+waiting in the selected toy queue and does not send a stop operation.
+
+`Vibrate` commands do not automatically send a stop operation after `duration`.
+The application must call `stopCommand()` when it needs to stop vibration.
+`Constrict` commands with `duration > 0` automatically send stop when the
+duration ends:
 
 ```js
 await toy.sendCommand({
-  vibration: 60,
-  motor: 1,
+  value: 60,
   duration: 0,
-  function: HoneyPlayBox.SDK.ToyFunctions.vibration
+  function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
 });
 
 await toy.stopCommand();
@@ -92,3 +106,4 @@ Feedback events expose consumer-facing fields:
 
 Pure command acknowledgement data is handled internally and is not emitted as
 toy feedback.
+

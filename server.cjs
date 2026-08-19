@@ -8,6 +8,7 @@ const port = Number(process.env.PORT || 5184);
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".wasm": "application/wasm",
   ".map": "application/json; charset=utf-8",
   ".json": "application/json; charset=utf-8"
 };
@@ -17,9 +18,13 @@ const server = http.createServer((request, response) => {
   const requestedPath = decodeURIComponent(
     url.pathname === "/" || url.pathname === "/sdk-demo.html" ? "/sdk-demo.html" : url.pathname
   );
-  const filePath = path.normalize(path.join(root, requestedPath));
+  // Keep the sample self-contained while loading the built local WASM artifact.
+  const filePath = requestedPath === "/protocol.wasm"
+    ? path.resolve(root, "../dist/protocol.wasm")
+    : path.normalize(path.join(root, requestedPath));
 
-  if (!filePath.startsWith(root)) {
+  const distWasmPath = path.resolve(root, "../dist/protocol.wasm");
+  if (!filePath.startsWith(root) && filePath !== distWasmPath) {
     response.writeHead(403);
     response.end("Forbidden");
     return;

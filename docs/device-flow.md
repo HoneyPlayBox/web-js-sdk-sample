@@ -31,8 +31,7 @@ flowchart TD
   F --> G["connectDevice(toyId)"]
   G --> H["Toy connected"]
   H --> I["sendCommand(commands)"]
-  I --> J["SDK schedules auto stop when duration > 0"]
-  J --> K["feedback events"]
+  I --> K["feedback events"]
   H --> L["stopCommand()"]
   H --> M["disconnect()"]
 ```
@@ -49,26 +48,56 @@ Bluetooth objects. The WASM SDK therefore keeps a JavaScript bridge for:
 
 Applications still call the same public SDK methods.
 
+Discovery must be triggered by a user gesture. The Chrome chooser is not the
+same as `chrome://bluetooth-internals/`. By default the SDK filters Chrome's
+chooser by exact configured BLE name or alias. Devices that are not in product
+config are not shown in the permission prompt or returned to the application
+list.
+
 ## Command And Stop
 
 ```js
 await toy.sendCommand([
   {
-    vibration: 50,
-    motor: 1,
+    value: 50,
     duration: 1000,
-    function: HoneyPlayBox.SDK.ToyFunctions.vibration
+    function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
   }
 ]);
 ```
 
-When `duration` is greater than `0`, the SDK automatically sends stop when the
-duration ends. When `duration` is `0`, the toy keeps running until a stop
-operation is received.
+Use `value` plus `function` as the public command shape. The SDK maps each
+function to the toy's internal actuator automatically, so applications do not
+need to know low-level motor indexes.
+
+`Vibrate` commands do not automatically send stop after `duration`. Send stop
+explicitly when the application needs to stop vibration. `Constrict` commands
+with `duration > 0` automatically send stop when the duration ends. When
+`duration` is `0`, the command runs until a stop operation is received.
 
 ```js
 await toy.stopCommand();
 ```
+
+## Command Mode
+
+Normal mode sends each command call immediately:
+
+```js
+toy.setCommandMode(HoneyPlayBox.SDK.ToyCommandMode.normal);
+```
+
+Queue mode stores each `sendCommand()` call in that toy's queue. The SDK sends
+one payload, waits for the longest `duration` in that payload, and then sends
+the next payload. Each connected toy has an independent queue, so queued
+commands for one toy do not block queued commands for another toy:
+
+```js
+toy.setCommandMode(HoneyPlayBox.SDK.ToyCommandMode.queue);
+```
+
+Switching between normal mode and queue mode clears commands that are still
+waiting in the selected toy queue and does not send a stop operation.
 
 ## Feedback
 
@@ -85,3 +114,4 @@ await toy.stopCommand();
 
 Pure command acknowledgements are handled internally and are not emitted as
 `feedback`.
+
