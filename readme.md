@@ -1,106 +1,66 @@
-# HoneyPlayBox JavaScript SDK Sample
+# HoneyPlayBox OpenSDK Sample
 
-This folder contains the browser sample for the HoneyPlayBox JavaScript SDK. The
-sample validates the public SDK integration flow:
+This sample demonstrates the public SDK: device discovery, connection, commands,
+a connector queue, script controls, battery and structured feedback.
 
-- Check whether the current browser supports BLE.
-- Discover configured toy devices.
-- Connect the selected toy.
-- Send commands.
-- Stop commands.
-- Read and display battery level.
-- Receive and display structured toy feedback.
+## Open The Sample
 
-The sample page is not a protocol test tool. Integrators only need to use the
-public SDK APIs.
-
-## Documentation
-
-Read the full SDK documentation in the sibling `docs` folder:
-
-- [Integration Guide](./docs/integration-guide.md)
-- [Overview](./docs/overview.md)
-- [Quick Start](./docs/quick-start.md)
-- [Device Flow](./docs/device-flow.md)
-- [API Reference](./docs/api-reference.md)
-
-## Run The Sample
-
-Start the local sample server:
-
-```powershell
-node server.cjs
-```
-
-Open:
-
-```text
-http://localhost:5184/sdk-demo.html
-```
-
-The page must be served from `localhost` or `https`. Do not open the HTML file
-directly from disk.
-
-## Integration Notes
-
-Load the online SDK:
+Serve the sample from HTTPS or localhost. The default page loads:
 
 ```html
-<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-opensdk-jssdk.min.js"></script>
 ```
 
-Create a connector:
+For the local sample server, use
+[the sample](http://localhost:5184/sdk-demo.html).
+For workspace integration checks, use
+[local SDK mode](http://localhost:5184/sdk-demo.html?sdk=local).
+The local option selects workspace resources and the repository product catalog
+through the sample server. It does not publish anything online or change the
+production catalog. Production integrations use SDK-managed online metadata.
 
-```js
-const connector = new HoneyPlayBox.SDK.ToyConnector();
-```
+## Device Selection
 
-Device discovery must be triggered by a user action, such as a button click,
-because the browser BLE permission prompt requires a user gesture:
+Choose BLE for direct Bluetooth or HID for a supported USB gateway.
+For BLE, click Discover to request browser authorization. For HID, click Connect
+HID and select the adapter first. Once connected, click Discover to search for
+toys. Select a returned toy and click Connect Selected. Discover is disabled
+in HID mode until the adapter is open; unplugging restores Connect HID.
 
-```js
-const devices = await connector.discoverDevices();
-```
+The page uses ToyConnector for BLE and HIDToyConnector for HID. Lifecycle calls
+belong to connector: scan, connect, disconnect, getToy, getConnectedToys and
+readBattery. Switching transport disconnects the previous transport's toys.
 
-Connect a device:
+Disconnect HID cancels scheduling, attempts to stop all connected HID toys,
+disconnects them, and closes the adapter. Refresh and page close attempt the same
+cleanup, but browsers do not await it. Use Disconnect HID before leaving when
+completion matters; device-side safety behavior is still required for crashes.
 
-```js
-const toy = await connector.connectDevice(devices[0].toyId);
-```
+## Execute And Observe
 
-Send commands:
+- Immediate sends to the selected toy.
+- Queue appends to the connector's shared FIFO. Its view shows all units and
+  their target toys, not a separate queue for the selected toy.
+- Funscript controls in the sample operate on the selected toy. For matched
+  multi-toy playback in an application, use the no-ID calls documented below.
+- Battery, pressure, connection and playback readings update from events.
+- Stop is different from clearing a queue: clearing sends no stop.
 
-```js
-await toy.sendCommand([
-  {
-    value: 50,
-    duration: 1000,
-    function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-  }
-]);
-```
+The sample does not replace physical-device verification. Inspect supported
+functions before sending. A queued result means accepted into the FIFO, not
+that the toy has executed it.
 
-Stop commands:
+## Integration Documentation
 
-```js
-await toy.stopCommand();
-```
+- [Overview](./docs/overview.md)
+- [Quick Start](./docs/quick-start.md)
+- [Device Lifecycle](./docs/device-flow.md)
+- [HID And Page Lifecycle](./docs/hid-lifecycle.md)
+- [Execution Modes](./docs/executors.md)
+- [Queues](./docs/queues.md)
+- [Funscript](./docs/funscript.md)
+- [Events](./docs/events.md)
+- [API Reference](./docs/api-reference.md)
+- [Integration Checklist](./docs/integration-guide.md)
 
-Subscribe to feedback:
-
-```js
-connector.onFeedback((feedback) => {
-  console.log(feedback);
-});
-```
-
-## Important Behavior
-
-- `duration` is measured in milliseconds.
-- `duration: 0` means the command keeps running until `stopCommand()` is called.
-- `Constrict` sends stop automatically when `duration > 0`.
-- `Vibrate` does not send stop automatically after `duration`.
-- One `ToyConnector` can manage multiple connected toys.
-- Product configuration is loaded from the fixed SDK product configuration URL.
-- The sample displays structured status and feedback only. Integrators do not
-  need to handle low-level transport data.
+Use the online SDK URL in your application. Product metadata is managed internally.

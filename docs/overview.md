@@ -1,109 +1,80 @@
-﻿# WASM SDK Overview
+# HoneyPlayBox OpenSDK
 
-HoneyPlayBox WASM SDK provides the same public browser SDK API as the standard
-JS SDK while moving low-level SDK logic into WebAssembly.
+HoneyPlayBox OpenSDK connects browser applications to supported toys over BLE
+or a supported USB HID gateway. All public classes and enums use
+`HoneyPlayBox.OpenSDK`.
 
-## Import
+## Load The SDK
 
 ```html
-<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-opensdk-jssdk.min.js"></script>
 ```
 
-The SDK is exposed under the `HoneyPlayBox.SDK` namespace.
+Use the published browser script directly. Product information is managed by
+the SDK; applications do not supply product configuration.
 
-The online SDK loads its matching online WebAssembly file automatically.
+## Ownership
 
-## Scope
-
-The WASM SDK keeps the public API aligned with the JS SDK:
-
-- Discover toys.
-- Connect toys.
-- Send commands.
-- Stop commands.
-- Read battery level.
-- Receive structured feedback.
-- Manage reconnect and disconnect states.
-
-Browser BLE authorization, device selection, connection, and characteristic I/O
-still require a JavaScript browser bridge because WebAssembly cannot directly
-call browser Bluetooth objects or trigger permission prompts.
-
-## Core Objects
-
-| Object | Description |
+| Owner | Responsibility |
 | --- | --- |
-| `ToyConnector` | Main SDK entry. It manages discovery, connection, events, and connected toys. |
-| `Toy` | A connected toy instance. It sends commands, stops commands, reads battery level, and disconnects. |
-| `ToyFunctions` | Enum for toy function values used in command input. |
-| `DeviceNotificationType` | Enum for structured feedback types. |
+| `connector` | Discovery, connection, device registry, battery reads and events. |
+| `connector.Immediate` | Send a unit to one toy now; explicitly stop one toy. |
+| `connector.Queue` | One FIFO of execution units shared by all toys in the connector. |
+| `connector.Funscript` | Load scripts, match capabilities and control playback. |
+| `toy` | Device properties and a separate toy-local command queue. |
 
-## Main Flow
+Device lifecycle methods do not belong to the executors.
 
-1. Serve the page from `localhost` or `https`.
-2. Import the WASM SDK.
-3. Create `ToyConnector`.
-4. Check browser BLE support with `HoneyPlayBox.SDK.isBleSupported()`.
-5. Call `connector.discoverDevices()` from a user click.
-6. Render the returned toy list.
-7. Connect the selected toy with `connector.connectDevice(toyId)`.
-8. Send commands with `toy.sendCommand(commands)`.
-9. Listen for `feedback`, `connect`, and `disconnect` events.
-10. Disconnect manually with `toy.disconnect()` or `connector.disconnectDevice(toyId)`.
+```javascript
+const connector = new HoneyPlayBox.OpenSDK.ToyConnector();
+// For a USB HID gateway, use this constructor instead:
+// const connector = new HoneyPlayBox.OpenSDK.HIDToyConnector();
 
-## Command Behavior
-
-Use `value` for the command value and `function` for the toy function. The SDK
-maps the function to the toy's internal actuator automatically, so integrations
-do not need to pass low-level motor indexes.
-
-Normal mode sends each `sendCommand()` call immediately. Queue mode stores each
-call in that toy's own queue, sends one payload at a time, waits for the longest
-`duration` in that payload, and then sends the next payload. Each connected toy
-has an independent queue, so one toy's queued commands do not block another toy.
-Switching between normal mode and queue mode clears commands that are still
-waiting in the selected toy queue and does not send a stop operation.
-
-`Vibrate` commands do not automatically send a stop operation after `duration`.
-The application must call `stopCommand()` when it needs to stop vibration.
-`Constrict` commands with `duration > 0` automatically send stop when the
-duration ends:
-
-```js
-await toy.sendCommand({
-  value: 60,
-  duration: 0,
-  function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-});
-
-await toy.stopCommand();
+const toy = await connector.connect(toyId);
+const toys = connector.getConnectedToys();
+const selectedToy = connector.getToy(toyId);
 ```
 
-## Web Page Requirements
+These connection examples assume discovery and user selection have already
+provided toyId. Separate connector instances have separate registries and queues.
 
-The SDK must run in a browser secure context. Use one of these origins:
+## Three Execution Choices
 
-- `http://localhost`
-- `https://`
+- Immediate sends to a specified toy without joining the connector FIFO.
+- Queue appends one execution unit per call. One unit may target several toys.
+  Targets run concurrently within a unit; units run sequentially.
+- Funscript matches tracks to connected toys. Main playback calls omit toyId;
+  each matched toy executes only its supported tracks.
 
-Opening an HTML file directly from disk does not provide the browser permission
-environment required for BLE discovery.
+Toy-local queues are separate from the connector FIFO. Different toys can run
+local queues concurrently. Both owners serialize complete units on the same toy
+to avoid overwriting each other's queued output.
 
-## Feedback
+## Browser Requirements
 
-Feedback events expose consumer-facing fields:
+Serve from HTTPS or localhost. Do not open the page directly as a local file.
+BLE requires Web Bluetooth; HID requires WebHID and a supported gateway.
+Discovery must originate directly from a user click. Permissions cannot be
+bypassed, and constructing a connector does not grant them.
 
-```js
-{
-  toyId: "toy-id",
-  name: "Vibrosa Mini",
-  kind: "pressure",
-  value: 15.5,
-  unit: "value",
-  time: Date.now()
-}
-```
+Browser scheduling and device latency are not real-time guarantees. A successful
+write or elapsed queue duration is not physical completion feedback.
 
-Pure command acknowledgement data is handled internally and is not emitted as
-toy feedback.
+## Reading Order
 
+1. [Quick Start](./quick-start.md): minimal browser integration.
+2. [Device Lifecycle](./device-flow.md): discovery and connection ownership.
+3. [Execution Modes](./executors.md): choosing an executor and replacing output.
+4. [Queues](./queues.md): units, multi-toy timing, removal and local queues.
+5. [Funscript](./funscript.md): matching, playback controls and limits.
+6. [Events](./events.md): status and sensor feedback.
+7. [API Reference](./api-reference.md): signatures and enum meanings.
+8. [Integration Checklist](./integration-guide.md): production and migration checks.
+9. [HID And Page Lifecycle](./hid-lifecycle.md): adapter authorization, discovery and exit limitations.
+
+## Current Contract
+
+This edition reflects the browser SDK and sample as of October 13, 2026.
+All examples use HoneyPlayBox.OpenSDK. The sample's adapter shutdown workflow
+is application code, not an automatic SDK guarantee. Deploy the matching SDK
+release before using newly documented adapter methods with the online script.

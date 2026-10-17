@@ -1,389 +1,111 @@
-# HoneyPlayBox WASM SDK Integration Guide
+# Integration Checklist
 
-This guide describes how to integrate the HoneyPlayBox browser SDK in a web
-application. It focuses on public SDK behavior only. Integrators only need to
-use the public JavaScript APIs and do not need to call the WebAssembly module
-directly.
+This guide is a checklist, not a second API specification. Detailed behavior
+belongs to [Device Lifecycle](./device-flow.md), [Queues](./queues.md),
+[Funscript](./funscript.md) and [Events](./events.md).
 
-## 1. Browser Requirements
+## Setup
 
-- Use Chrome or another browser with Web Bluetooth support.
-- Serve the page from `https` or `localhost`.
-- Do not open the HTML file directly from disk.
-- Trigger device discovery from a user action, such as a button click.
-- Keep the page active while connecting and sending commands.
+1. Serve the application from HTTPS or localhost.
+2. Load honeyplaybox-opensdk-jssdk.min.js from the published SDK URL.
+3. Create ToyConnector for BLE or HIDToyConnector for a supported USB gateway.
+4. Check the corresponding browser capability before enabling discovery.
+5. Register connection, feedback, queue and playback listeners.
+6. For HID, call connector.connectHid from a click first. Then call connector.scan
+   from Discover and render the returned toys. BLE uses Discover directly.
+7. Connect selected IDs through connector.connect and verify toy.connected.
 
-Check browser support before showing BLE controls:
+Product names, avatars, functions and targets come from SDK-managed metadata.
+Do not hard-code one product's capabilities for every toy.
 
-```js
-const bleState = await HoneyPlayBox.SDK.isBleSupported();
-if (!bleState.supported) {
-  // Show an application-level unsupported-browser message.
-}
-```
+## Keep Responsibilities Separate
 
-## 2. Load The SDK
-
-Use the online SDK in production:
-
-```html
-<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
-```
-
-Create one connector for the page:
-
-```js
-const connector = new HoneyPlayBox.SDK.ToyConnector({
-  autoReconnect: true,
-  reconnectMaxAttempts: 5
-});
-```
-
-## 3. Discover Devices
-
-Discovery opens the browser permission prompt and must run inside a user
-gesture.
-
-```js
-document.querySelector("#discover").addEventListener("click", async () => {
-  const toys = await connector.discoverDevices();
-  renderToyList(toys);
-});
-```
-
-The result contains configured toy summaries:
-
-```js
-{
-  toyId: "browser-device-id",
-  name: "Toy Name",
-  avatar: "https://example.com/toy.png",
-  features: [HoneyPlayBox.SDK.ToyFunctions.Vibrate],
-  transport: "ble-wasm"
-}
-```
-
-If no toys are returned, the user may have cancelled the browser prompt, the
-browser may not have BLE permission, or the nearby device may not match the SDK
-product configuration.
-
-## 4. Connect A Toy
-
-Connect by `toyId` after discovery:
-
-```js
-const toy = await connector.connectDevice(toyId);
-```
-
-A connected toy exposes display data and capabilities:
-
-```js
-console.log(toy.toyId);
-console.log(toy.name);
-console.log(toy.avatar);
-console.log(toy.features);
-console.log(toy.connected);
-```
-
-You can manage multiple toys with one connector:
-
-```js
+```javascript
+const toy = await connector.connect(toyId);
 const toys = connector.getConnectedToys();
-const toy = connector.getToy(toyId);
+const selectedToy = connector.getToy(toyId);
 ```
 
-## 5. Send Commands
+Only the connector handles discovery, connections and registry queries.
+Use Immediate for direct commands, Queue for a shared FIFO, and Funscript for
+matched timeline playback. Toy.sendCommand in Toy queue mode is deliberately a
+different, local queue.
 
-Use `sendCommand()` on a `Toy`, or `connector.sendCommand(toyId, commands)` from
-the connector.
+Do not use the return of Queue.execute as proof that an action has run.
+Do not use successful writes as physical-completion feedback. Render state from
+events and identify connector queue units by commandId.
 
-```js
-await toy.sendCommand({
-  value: 60,
-  duration: 1000,
-  function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-});
-```
+## Multi-Toy UI
 
-You can pass an array when a single execution unit needs multiple command
-entries:
+- Render one card/row per toyId, using name and avatar for display.
+- Select functions from the toy's features and use ToyFunctions values.
+- Keep unknown battery separate from a zero-percent reading.
+- Display connector queues as units; show toyIds and each command's target.
+- Display Toy-local queues separately or label their scope explicitly.
+- Show per-toy Funscript status and matched/skipped tracks.
+- Reflect disconnect immediately, including during reconnect attempts.
+- Stop each required toy explicitly; cancelling a group unit does not stop all
+  of its already-running targets.
 
-```js
-await toy.sendCommand([
-  {
-    value: 60,
-    duration: 1000,
-    function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-  },
-  {
-    value: 40,
-    duration: 1000,
-    function: HoneyPlayBox.SDK.ToyFunctions.Constrict
-  }
-]);
-```
+## Timing And Cancellation
 
-One `sendCommand()` call is one execution unit. Even when the argument is an
-array, the whole array is treated as one execution unit.
+For a connector queue unit, next-unit eligibility is the latest target send
+completion plus that target's longest duration. Zero-duration targets add no
+wait. Local reservations and transport latency affect when targets actually send.
 
-### Command Fields
+Queue.clear cancels scheduling, not physical output. Filtered clear cancels whole
+multi-toy units containing the target. Execution replacement is also scoped by
+affected toys; unrelated units remain. Read the cancellation section in
+[Queues](./queues.md) before implementing stop-all or transport switching.
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `value` | `number` | Function value, such as vibration strength or constriction strength. |
-| `duration` | `number` | Duration in milliseconds. `0` means keep running until stop is sent. |
-| `durationMs` | `number` | Alias of `duration`. |
-| `function` | `ToyFunctions` | Toy function. Defaults to `ToyFunctions.Vibrate`. |
-| `target` | `Spots` | Optional stimulation point. Omit it to let the SDK choose from the function. |
-| `centerPosition` | `number` | Position command center value. |
-| `amplitude` | `number` | Position command amplitude value. |
-| `speed` | `number` | Position command speed value. |
+Funscript pause and stop request output stop for eligible participants. Use
+resume after pause. Media synchronization takes milliseconds of media position,
+not wall-clock time.
 
-Use enum values instead of raw strings:
+## Errors
 
-```js
-HoneyPlayBox.SDK.ToyFunctions.Vibrate;
-HoneyPlayBox.SDK.ToyFunctions.Constrict;
-HoneyPlayBox.SDK.ToyFunctions.Position;
-HoneyPlayBox.SDK.Spots.C;
-HoneyPlayBox.SDK.Spots.G;
-```
+Catch method rejections and subscribe to background events.
 
-## 6. Stop Commands
-
-Use `stopCommand()` when the application needs to stop the current action:
-
-```js
-await toy.stopCommand();
-```
-
-Important behavior:
-
-- `duration: 0` keeps the command running until stop is sent.
-- `Vibrate` does not automatically send stop after `duration`.
-- `Constrict` with `duration > 0` automatically sends stop when the duration
-  ends.
-
-## 7. Queue Mode
-
-Normal mode sends immediately:
-
-```js
-toy.setCommandMode(HoneyPlayBox.SDK.ToyCommandMode.normal);
-```
-
-Queue mode puts each `sendCommand()` call into that toy's independent queue:
-
-```js
-toy.setCommandMode(HoneyPlayBox.SDK.ToyCommandMode.queue);
-
-const result = await toy.sendCommand({
-  value: 50,
-  duration: 1000,
-  function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-});
-
-console.log(result.status); // "queued"
-console.log(result.commandId);
-```
-
-Queue rules:
-
-- Each toy has its own queue.
-- Each `sendCommand()` call is one queue item.
-- An array argument is still one queue item.
-- The current item stays in the queue with `status: "running"`.
-- After the current item duration completes, only that item is removed.
-- Waiting queue items are not cleared when the current item completes.
-- Switching command mode clears waiting queue items and does not send stop.
-
-Queue APIs:
-
-```js
-const queue = toy.getCommandQueue();
-const removed = toy.removeCommand(commandId);
-const removedCount = toy.clearCommandQueue();
-```
-
-Subscribe to queue changes:
-
-```js
-const unsubscribe = connector.onQueueChange((queueState) => {
-  console.log(queueState.action);
-  console.log(queueState.queuedCommandCount);
-});
-```
-
-Queue event actions:
-
-| Action | Meaning |
+| Symptom | Check |
 | --- | --- |
-| `enqueue` | A command unit entered the queue. |
-| `start` | A queued unit started running. |
-| `complete` | A queued unit completed and left the queue. |
-| `failed` | A queued unit failed and left the queue. |
-| `remove` | A waiting queued unit was removed. |
-| `clear` | Waiting queued units were cleared. |
-| `modeChange` | Command mode changed. |
+| Authorization does not open | User gesture, secure origin and browser API support. |
+| HID chooser has no toys | It selects a gateway; toy scan occurs afterward. |
+| No supported toys returned | Device power, permissions, range and supported product matching. |
+| Connect fails | Range, device power or another active connection. |
+| A queue execute returned but nothing moved | It confirms enqueue; inspect running units, reservations and failed events. |
+| Funscript load fails | Valid actions/tracks, no overlaps and at least one compatible toy. |
+| Funscript start rejects | Loaded state; use resume after pause. |
+| Group operation partially fails | Inspect per-target failures and each toy's status. |
+| Cleared queue but toy still moves | Clear sends no stop; explicitly stop required toys. |
+| Local fix not visible in sample | Default sample uses the published SDK; use its local test URL or publish the update. |
+| Product loading fails before the chooser opens | Check the failing response status, network and CORS headers; this is not an empty radio scan. |
+| Connect HID is missing from the SDK | Deploy the matching release; local changes do not update the online script. |
+| A toy keeps moving after the page closes | Browser termination can interrupt cleanup; require a device-side safety timeout for guarantees. |
 
-## 8. Feedback Events
+Avoid logging internal communication details. Application logs should describe
+input commands, structured readings, queue changes and playback state.
 
-Subscribe to structured toy feedback:
+## Migration Notes
 
-```js
-connector.onFeedback((feedback) => {
-  switch (feedback.kind) {
-    case "battery":
-      updateBattery(feedback.toyId, feedback.value);
-      break;
-    case "pressure":
-      updatePressure(feedback.toyId, feedback.value);
-      break;
-    default:
-      handleOtherFeedback(feedback);
-      break;
-  }
-});
-```
-
-Feedback shape:
-
-```js
-{
-  toyId: "toy-id",
-  name: "Toy Name",
-  kind: "battery",
-  value: 80,
-  unit: "percent",
-  time: Date.now()
-}
-```
-
-## 9. Battery
-
-The SDK reads battery level automatically after connection when the device
-supports it. You can also request it manually:
-
-```js
-const batteryLevel = await toy.readBatteryLevel();
-```
-
-Battery feedback is emitted as:
-
-```js
-{
-  kind: "battery",
-  value: 80,
-  unit: "percent"
-}
-```
-
-## 10. Disconnect And Reconnect
-
-Manual disconnect:
-
-```js
-await toy.disconnect();
-```
-
-Unexpected device-side disconnects are reported through events. When
-`autoReconnect` is enabled, the SDK will attempt to reconnect.
-
-```js
-connector.addEventListener("disconnect", (event) => {
-  updateToyStatus(event.detail.toyId, "Disconnected");
-});
-
-connector.addEventListener("connect", (event) => {
-  updateToyStatus(event.detail.toyId, event.detail.status);
-});
-```
-
-Common connect statuses:
-
-| Status | Meaning |
+| Old assumption | Current contract |
 | --- | --- |
-| `connected` | Initial connection completed. |
-| `reconnecting` | Reconnect is scheduled. |
-| `reconnected` | Reconnect completed. |
-| `reconnectError` | One reconnect attempt failed. |
-| `reconnectStopped` | Reconnect stopped. |
+| HoneyPlayBox.SDK | HoneyPlayBox.OpenSDK. |
+| Lifecycle on Immediate | scan/connect/disconnect/getToy/getConnectedToys/readBattery on connector. |
+| One connector queue per toy | One connector FIFO; separate Toy-local queues. |
+| An array is sequential queue entries | One execute call is one unit, even for an array. |
+| Every queue unit targets one toy | Units may group multiple toys and commands. |
+| Funscript examples need toyId | Main calls omit toyId and use matched participants. |
+| Clear means stop | Clear cancels scheduling only. |
+| Longest duration alone defines completion | Wait from each target's successful send completion. |
 
-## 11. Recommended UI Flow
+## Before Shipping
 
-1. Check BLE support.
-2. Ask the user to click Discover.
-3. Show discovered configured toys.
-4. Connect the selected toy.
-5. Show connection, battery, queue, and feedback state.
-6. Send commands with `sendCommand()`.
-7. Use queue mode only when commands should run sequentially.
-8. Stop the current action when the application requires it.
-9. Reflect disconnect and reconnect events in the UI.
+Test BLE and HID separately on the target browsers and operating systems.
+Include permission cancellation, disconnect during output, partial multi-toy
+failure, queue clear during a write, unsupported tracks and UI subscription cleanup.
+Verify both uncompressed local behavior and the actual published minified asset.
+SDK test results do not replace testing with the intended physical devices.
 
-## 12. Error Handling
-
-Wrap user operations in `try/catch` and show application-level messages:
-
-```js
-try {
-  const toys = await connector.discoverDevices();
-} catch (error) {
-  showMessage(error.message);
-}
-```
-
-Common causes:
-
-| Situation | Common Cause |
-| --- | --- |
-| Discovery does not open | The call was not triggered by a user gesture. |
-| No devices returned | Browser prompt cancelled, no configured device nearby, or device is off. |
-| Connect failed | Device powered off, out of range, or already busy. |
-| Command failed | Device disconnected or browser GATT operation failed. |
-| BLE unsupported | Browser or current page origin does not support Web Bluetooth. |
-
-## 13. Minimal Complete Example
-
-```html
-<button id="discover">Discover</button>
-<button id="connect">Connect</button>
-<button id="send">Send</button>
-<button id="stop">Stop</button>
-
-<script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
-<script>
-  const connector = new HoneyPlayBox.SDK.ToyConnector();
-  let selectedToyId = "";
-  let toy = null;
-
-  connector.onFeedback((feedback) => {
-    console.log("feedback", feedback);
-  });
-
-  connector.onQueueChange((queueState) => {
-    console.log("queue", queueState);
-  });
-
-  document.querySelector("#discover").addEventListener("click", async () => {
-    const toys = await connector.discoverDevices();
-    selectedToyId = toys[0]?.toyId || "";
-  });
-
-  document.querySelector("#connect").addEventListener("click", async () => {
-    toy = await connector.connectDevice(selectedToyId);
-  });
-
-  document.querySelector("#send").addEventListener("click", async () => {
-    await toy.sendCommand({
-      value: 60,
-      duration: 1000,
-      function: HoneyPlayBox.SDK.ToyFunctions.Vibrate
-    });
-  });
-
-  document.querySelector("#stop").addEventListener("click", async () => {
-    await toy.stopCommand();
-  });
-</script>
-```
+Read [HID And Page Lifecycle](./hid-lifecycle.md) before implementing page exit.
+Never treat an attempted stop, a closed page or an adapter disconnection as
+confirmed physical output completion.

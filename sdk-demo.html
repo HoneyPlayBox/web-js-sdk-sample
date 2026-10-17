@@ -20,6 +20,41 @@
       max-width: 760px;
     }
 
+    main > *, .stack > *, .device-item > * {
+      min-width: 0;
+    }
+
+    input[type="file"] {
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .file-picker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .file-picker button { flex-shrink: 0; }
+    #funscriptFileName { min-width: 0; overflow-wrap: anywhere; }
+
+    .device-name, .device-meta, .queue-meta, #funscriptStatus {
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 600px) {
+      .device-item {
+        grid-template-columns: auto 40px minmax(0, 1fr) !important;
+      }
+      .device-item .battery {
+        grid-column: 2 / -1;
+      }
+      .device-item .device-status {
+        grid-column: 3;
+      }
+    }
+
     button,
     input,
     textarea {
@@ -236,8 +271,12 @@
 
     <section>
       <div class="row">
-        <button id="check">Check BLE</button>
+        <label for="transport">Transport</label>
+        <select id="transport"><option value="ble">BLE</option><option value="hid">HID</option></select>
+        <button id="check">Check Support</button>
         <button id="discover">Discover</button>
+        <button id="connectHid" hidden>Connect HID</button>
+        <button id="disconnectHid" hidden>Disconnect HID</button>
         <button id="connect" disabled>Connect Selected</button>
         <button id="sendCommand">Send Command</button>
         <button id="stopCommand">Stop Command</button>
@@ -267,7 +306,8 @@
               <option value="p">P</option>
             </select></label>
           <label>Mode <select id="commandMode">
-              <option value="normal">Normal</option>
+              <option value="immediate">Immediate</option>
+              <option value="funscript">Funscript</option>
               <option value="queue">Queue</option>
             </select></label>
           <label>Duration(ms) <input id="duration" type="number" min="0" step="100" value="2000"></label>
@@ -283,7 +323,7 @@
     <section>
       <div class="stack">
         <div class="queue-header">
-          <h2 class="queue-title">Command Queue</h2>
+          <h2 class="queue-title">Connector Queue</h2>
           <span id="queueMeta" class="queue-meta">No selected toy</span>
         </div>
         <div id="queueList" class="queue-list" aria-label="Command queue"></div>
@@ -291,12 +331,54 @@
       </div>
     </section>
 
+    <section id="funscriptPanel" hidden>
+      <div class="stack">
+        <h2 class="queue-title">Funscript</h2>
+        <div class="file-picker">
+          <button id="chooseFunscriptFile" type="button">Choose File</button>
+          <span id="funscriptFileName" aria-live="polite">No file chosen</span>
+          <input id="funscriptFile" type="file" accept=".funscript,.json,application/json" aria-label="Funscript file" hidden>
+        </div>
+        <label class="stack">Script<textarea id="funscriptInput" spellcheck="false">{"actions":[{"at":0,"pos":0},{"at":1000,"pos":80},{"at":2000,"pos":0}]}</textarea></label>
+        <div class="row">
+          <button id="loadFunscript" type="button">Load</button>
+          <button id="startFunscript" type="button">Start</button>
+          <button id="resumeFunscript" type="button">Resume</button>
+          <button id="pauseFunscript" type="button">Pause</button>
+          <button id="stopFunscript" type="button">Stop</button>
+          <button id="restartFunscript" type="button">Restart</button>
+        </div>
+        <div class="row">
+          <label>Time (ms) <input id="funscriptTime" type="number" min="0" step="100" value="0"></label>
+          <button id="seekFunscript" type="button">Seek</button>
+          <button id="calibrateFunscriptTime" type="button">Calibrate</button>
+          <button id="jumpFunscriptBack" type="button">-5 s</button>
+          <button id="jumpFunscriptForward" type="button">+5 s</button>
+          <label>Speed <select id="funscriptRate"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="4">4x</option></select></label>
+        </div>
+        <progress id="funscriptProgress" max="1" value="0" style="width:100%"></progress>
+        <output id="funscriptStatus" aria-live="polite">No script loaded.</output>
+      </div>
+    </section>
     <pre id="log"></pre>
   </main>
-  <script src="//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-connector-jssdk.min.js"></script>
+  <script>
+    // Keep the published SDK as the default; opt in to local integration testing.
+    const localSdk = new URLSearchParams(location.search).get("sdk") === "local";
+    document.write('<script src="' + (localSdk ? '/honeyplaybox-connector-jssdk.js?catalog=local' : '//sdk.honeyplaybox.com/prod/native-sdk/jssdk/honeyplaybox-opensdk-jssdk.min.js') + '"><\/script>');
+  </script>
   <script>
 
-    const connector = new HoneyPlayBox.SDK.ToyConnector();
+    const connectorOptions = localSdk ? { protocolWasmUrl: "/protocol.wasm" } : {};
+    const bleConnector = new HoneyPlayBox.OpenSDK.ToyConnector(connectorOptions);
+    const hidConnector = HoneyPlayBox.OpenSDK.HIDToyConnector ? new HoneyPlayBox.OpenSDK.HIDToyConnector(connectorOptions) : null;
+    let connector = bleConnector;
+    // Keep UI subscriptions stable while selecting a different connector instance.
+    for (const type of ["feedback", "queuechange", "connect", "disconnect", "error", "discover", "funscriptstate"]) {
+      hidConnector?.addEventListener(type, (event) => {
+        if (connector === hidConnector) bleConnector.dispatchEvent(new CustomEvent(type, { detail: event.detail }));
+      });
+    }
     const log = document.querySelector("#log");
     const deviceList = document.querySelector("#deviceList");
     const emptyDevices = document.querySelector("#emptyDevices");
@@ -408,8 +490,8 @@
       const toy = getSelectedToySummary();
       const features = Array.isArray(toy?.features) ? toy.features : [];
       return features.length ? features : [
-        HoneyPlayBox.SDK.ToyFunctions.Vibrate,
-        HoneyPlayBox.SDK.ToyFunctions.Constrict
+        HoneyPlayBox.OpenSDK.ToyFunctions.Vibrate,
+        HoneyPlayBox.OpenSDK.ToyFunctions.Constrict
       ];
     }
 
@@ -427,13 +509,15 @@
 
     function renderCommandMode() {
       const connectedToy = selectedToyId ? connector.getToy(selectedToyId) : null;
-      commandModeSelect.value = connectedToy?.commandMode || HoneyPlayBox.SDK.ToyCommandMode.normal;
+      commandModeSelect.value = connectedToy?.commandMode === "normal" ? "immediate" : connectedToy?.commandMode || "immediate";
+      document.querySelector("#funscriptPanel").hidden = commandModeSelect.value !== "funscript";
+      renderFunscriptState(connectedToy?.getFunscriptState?.());
     }
 
     function applySelectedCommandMode() {
       const connectedToy = selectedToyId ? connector.getToy(selectedToyId) : null;
       if (connectedToy) {
-        connectedToy.setCommandMode(commandModeSelect.value);
+        connector.setCommandMode(connectedToy.toyId, commandModeSelect.value);
       }
     }
 
@@ -441,9 +525,9 @@
       const command = {
         toyId: selectedToyId || undefined,
         duration: Number(durationInput.value),
-        function: functionSelect.value || HoneyPlayBox.SDK.ToyFunctions.Vibrate
+        function: functionSelect.value || HoneyPlayBox.OpenSDK.ToyFunctions.Vibrate
       };
-      if (command.function === HoneyPlayBox.SDK.ToyFunctions.Position) {
+      if (command.function === HoneyPlayBox.OpenSDK.ToyFunctions.Position) {
         command.centerPosition = Number(centerPositionInput.value);
         command.amplitude = Number(amplitudeInput.value);
         command.speed = Number(speedInput.value);
@@ -484,11 +568,8 @@
     }
 
     function renderCommandQueue() {
-      const toy = selectedToyId ? connector.getToy(selectedToyId) : null;
-      const queue = toy?.getCommandQueue?.() || [];
-      queueMeta.textContent = toy
-        ? `${toy.name} | Mode: ${toy.commandMode} | Waiting: ${queue.length}`
-        : "No selected toy";
+      const queue = connector.Queue.getItems();
+      queueMeta.textContent = `Running: ${queue.filter((entry) => entry.status === "running").length} | Waiting: ${queue.filter((entry) => entry.status === "waiting").length}`;
       emptyQueue.hidden = queue.length > 0;
       queueList.replaceChildren(...queue.map((entry) => {
         const item = document.createElement("div");
@@ -497,7 +578,7 @@
         const head = document.createElement("div");
         head.className = "queue-item-head";
         const title = document.createElement("span");
-        title.textContent = `#${entry.position} ${entry.commandId}`;
+        title.textContent = `#${entry.position} ${entry.name} | ${entry.commandId}`;
         const status = document.createElement("span");
         status.textContent = entry.status;
         head.append(title, status);
@@ -621,7 +702,7 @@
     }
 
     function formatToyFeature(feature) {
-      const match = Object.entries(HoneyPlayBox.SDK.ToyFunctions)
+      const match = Object.entries(HoneyPlayBox.OpenSDK.ToyFunctions)
         .find(([, value]) => value === feature);
       return match ? `ToyFunctions.${match[0]}` : "ToyFunctions.unknown";
     }
@@ -643,6 +724,7 @@
     const handleQueueChange = (queueState) => {
       renderCommandQueue();
       write("queue change", {
+        scope: queueState.scope,
         toyId: queueState.toyId,
         name: queueState.name,
         action: queueState.action,
@@ -666,18 +748,149 @@
 
     connector.addEventListener("disconnect", (event) => {
       setDeviceStatus(event.detail.toyId, formatConnectionStatus(event.detail));
+      renderDeviceList();
+      renderCommandQueue();
+    });
+
+    connector.addEventListener("error", (event) => setStatus(event.detail.message));
+    connector.addEventListener("discover", (event) => {
+      discoveredDevices.set(event.detail.toyId, event.detail);
+      renderDeviceList();
+    });
+
+    let transportBusy = false;
+    const hidButton = document.querySelector("#connectHid");
+    const disconnectHidButton = document.querySelector("#disconnectHid");
+    let hidCleanupPromise = null;
+
+    function disconnectHidSafely() {
+      if (hidCleanupPromise) return hidCleanupPromise;
+      if (!hidConnector?.isHidConnected?.()) return Promise.resolve();
+      const gateway = hidConnector.hidGateway;
+      const toys = hidConnector.getConnectedToys();
+      // Cancel both queue owners and playback synchronously before awaiting I/O.
+      hidConnector.Queue.clear();
+      for (const toy of toys) {
+        toy.funscript.interrupt("disconnect");
+        toy.clearCommandQueue();
+        toy.clearCommandStopTimer();
+      }
+      transportBusy = true;
+      renderTransportControls();
+      hidCleanupPromise = (async () => {
+        const failures = [];
+        try {
+          const stopped = await Promise.allSettled(toys.map(toy => hidConnector.Immediate.stop(toy.toyId)));
+          failures.push(...stopped.filter(result => result.status === "rejected").map(result => result.reason));
+          // Attempt every disconnect even if one toy rejects its stop command.
+          const disconnected = await Promise.allSettled(toys.map(toy => hidConnector.disconnect(toy.toyId)));
+          failures.push(...disconnected.filter(result => result.status === "rejected").map(result => result.reason));
+        } finally {
+          try { await gateway.close(); }
+          finally {
+            if (hidConnector.hidGateway === gateway) hidConnector.hidGateway = null;
+            transportBusy = false;
+            renderTransportControls();
+          }
+        }
+        if (failures.length) throw new AggregateError(failures, "HID disconnected, but some toy stop or disconnect commands failed.");
+      })().finally(() => { hidCleanupPromise = null; });
+      return hidCleanupPromise;
+    }
+
+    function handleHidPageExit() {
+      // Browsers do not await lifecycle promises. This is best effort, not a
+      // hardware stop guarantee; explicit Disconnect HID can await completion.
+      void disconnectHidSafely().catch(error => setStatus(error.message));
+    }
+    window.addEventListener("pagehide", handleHidPageExit);
+    disconnectHidButton.addEventListener("click", async () => {
+      await runAction("disconnect HID", async () => {
+        await disconnectHidSafely();
+        setStatus("HID toys stopped and adapter disconnected.");
+      });
+    });
+    function renderTransportControls() {
+      const isHid = connector.transport === "hid";
+      const ready = Boolean(connector.isHidConnected?.());
+      hidButton.hidden = !isHid;
+      hidButton.textContent = ready ? "HID Connected" : "Connect HID";
+      hidButton.disabled = transportBusy || ready;
+      disconnectHidButton.hidden = !isHid;
+      disconnectHidButton.disabled = transportBusy || !ready;
+      // Register the early exit attempt only while an adapter is open.
+      if (hidConnector?.isHidConnected?.()) window.addEventListener("beforeunload", handleHidPageExit);
+      else window.removeEventListener("beforeunload", handleHidPageExit);
+      document.querySelector("#transport").disabled = transportBusy;
+      document.querySelector("#discover").disabled = transportBusy || (isHid && !ready);
+    }
+
+    hidButton.addEventListener("click", async () => {
+      transportBusy = true;
+      renderTransportControls();
+      try {
+        await runAction("connect HID", async () => {
+          if (!connector.connectHid) throw new Error("Update the SDK to connect a HID adapter separately.");
+          setStatus("Select a HID adapter...");
+          await connector.connectHid();
+          setStatus("HID adapter connected.");
+        });
+      } finally {
+        transportBusy = false;
+        renderTransportControls();
+      }
+    });
+    navigator.hid?.addEventListener("disconnect", (event) => {
+      // Gateway listeners may run after this listener; update once they finish.
+      if (connector.transport !== "hid" || event.device !== connector.hidGateway?.device) return;
+      queueMicrotask(() => {
+        renderTransportControls();
+        setStatus("HID adapter disconnected.");
+      });
+    });
+    renderTransportControls();
+
+    document.querySelector("#transport").addEventListener("change", async (event) => {
+      const select = event.target;
+      const discover = document.querySelector("#discover");
+      transportBusy = true;
+      renderTransportControls();
+      try {
+        const next = select.value === "hid" ? hidConnector : bleConnector;
+        if (!next) throw new Error("Update the SDK to use HIDToyConnector.");
+        if (connector === hidConnector) await disconnectHidSafely();
+        for (const toy of connector.getConnectedToys()) await connector.disconnect(toy.toyId);
+        await connector.hidGateway?.close();
+        connector.hidGateway = null;
+        connector = next;
+        connector.discoveredDevices.clear();
+        discoveredDevices.clear();
+        deviceStates.clear();
+        selectedToyId = "";
+        renderDeviceList();
+        renderCommandQueue();
+        renderFunctionOptions();
+        setStatus(`${select.value.toUpperCase()} selected.`);
+      } catch (error) {
+        select.value = connector.transport || "ble";
+        setStatus(error.message);
+      } finally { transportBusy = false; renderTransportControls(); }
     });
 
     document.querySelector("#check").addEventListener("click", async () => {
       await runAction("check", async () => {
-        await HoneyPlayBox.SDK.isBleSupported();
+        const state = connector.transport === "hid" ? await connector.isHidSupported() : await HoneyPlayBox.OpenSDK.isBleSupported();
+        setStatus(state.available ? "Transport available." : "Transport unavailable. Use a supported browser on HTTPS or localhost.");
       });
     });
 
     document.querySelector("#discover").addEventListener("click", async () => {
+      transportBusy = true;
+      renderTransportControls();
       await runAction("discover", async () => {
-        setStatus("Requesting device permission...");
-        const devices = await connector.discoverDevices();
+        if (connector.transport === "hid" && !connector.isHidConnected?.()) throw new Error("Connect a HID adapter first.");
+        setStatus(connector.transport === "hid" ? "Discovering toys..." : "Requesting device permission...");
+        const devices = await connector.scan();
         for (const device of devices) {
           discoveredDevices.set(device.toyId, device);
           deviceStates.set(device.toyId, "Discovered");
@@ -688,6 +901,8 @@
         renderDeviceList();
         setStatus(devices.length ? `Discovered ${devices.length} device(s).` : "No configured devices discovered.");
       });
+      transportBusy = false;
+      renderTransportControls();
     });
 
     document.querySelector("#connect").addEventListener("click", async () => {
@@ -696,7 +911,7 @@
           throw new Error("Select a device first.");
         }
         connectButton.disabled = true;
-        const connectedToy = await connector.connectDevice(selectedToyId);
+        const connectedToy = await connector.connect(selectedToyId);
         selectedToyId = connectedToy.toyId;
         setDeviceStatus(selectedToyId, "Connected");
         applySelectedCommandMode();
@@ -725,7 +940,57 @@
 
     commandModeSelect.addEventListener("change", () => {
       applySelectedCommandMode();
+      document.querySelector("#funscriptPanel").hidden = commandModeSelect.value !== "funscript";
       renderCommandQueue();
+    });
+
+    function renderFunscriptState(state) {
+      document.querySelector("#funscriptProgress").value = state?.progress || 0;
+      document.querySelector("#funscriptStatus").textContent = state
+        ? `${state.state} | ${Math.round(state.positionMs)} / ${state.durationMs} ms | ${state.playbackRate}x${state.message ? ` | ${state.message}` : ""}`
+        : "No script loaded.";
+      if (state) document.querySelector("#funscriptRate").value = String(state.playbackRate);
+    }
+    connector.onFunscriptState?.((state) => {
+      if (state.toyId === selectedToyId) renderFunscriptState(state);
+    });
+    // Native file-input captions follow the browser locale, not the page language.
+    document.querySelector("#chooseFunscriptFile").addEventListener("click", () => {
+      document.querySelector("#funscriptFile").click();
+    });
+    document.querySelector("#funscriptFile").addEventListener("change", async (event) => {
+      document.querySelector("#funscriptFileName").textContent = event.target.files[0]?.name || "No file chosen";
+      await runAction("read script", async () => {
+        const file = event.target.files[0];
+        if (file) document.querySelector("#funscriptInput").value = await file.text();
+      });
+    });
+    for (const method of ["loadFunscript", "startFunscript", "resumeFunscript", "pauseFunscript", "stopFunscript", "restartFunscript", "seekFunscript", "calibrateFunscriptTime", "jumpFunscriptBack", "jumpFunscriptForward"]) {
+      document.getElementById(method).addEventListener("click", async () => {
+        await runAction(method, async () => {
+          const toy = connector.getToy(selectedToyId);
+          if (!toy?.connected) throw new Error("Select and connect a device first.");
+          if (typeof toy.loadFunscript !== "function") throw new Error("Update the SDK to use funscript playback.");
+          let state;
+          if (method === "loadFunscript") {
+            await connector.Funscript.load(selectedToyId, document.querySelector("#funscriptInput").value, {
+              function: functionSelect.value,
+              ...(stimulusPointSelect.value ? { target: stimulusPointSelect.value } : {})
+            });
+            state = connector.Funscript.getStatus(selectedToyId);
+          } else if (method === "seekFunscript" || method === "calibrateFunscriptTime") state = await connector.Funscript[method === "seekFunscript" ? "seek" : "synchronizeTime"](selectedToyId, Number(document.querySelector("#funscriptTime").value));
+          else if (method.startsWith("jump")) state = await connector.Funscript.jump(selectedToyId, method.endsWith("Back") ? -5000 : 5000);
+          else state = await connector.Funscript[method.replace("Funscript", "")](selectedToyId);
+          renderFunscriptState(state);
+        });
+      });
+    }
+    document.querySelector("#funscriptRate").addEventListener("change", async (event) => {
+      await runAction("playback rate", async () => {
+        const toy = connector.getToy(selectedToyId);
+        if (!toy) throw new Error("Select and connect a device first.");
+        renderFunscriptState(await connector.Funscript.setPlaybackRate(selectedToyId, Number(event.target.value)));
+      });
     });
 
     document.querySelector("#sendCommand").addEventListener("click", async () => {
@@ -741,7 +1006,8 @@
           commands,
           time: Date.now()
         });
-        await targetToy.sendCommand(commands);
+        if (commandModeSelect.value === "funscript") throw new Error("Use the Funscript playback controls.");
+        await connector[commandModeSelect.value === "queue" ? "Queue" : "Immediate"].execute(selectedToyId, commands);
         renderCommandQueue();
       });
     });
@@ -752,7 +1018,8 @@
         if (!targetToy) {
           throw new Error("Select and connect a device first.");
         }
-        await targetToy.stopCommand();
+        if (commandModeSelect.value === "funscript") await connector.Funscript.stop(selectedToyId);
+        else await connector.Immediate.stop(selectedToyId);
         renderCommandQueue();
       });
     });
@@ -763,7 +1030,7 @@
         if (!targetToy) {
           throw new Error("Select and connect a device first.");
         }
-        const batteryLevel = await targetToy.readBatteryLevel();
+        const batteryLevel = await connector.readBattery(selectedToyId);
         updateDeviceBattery(targetToy.id, batteryLevel);
         write("battery read", {
           toyId: targetToy.id,
@@ -779,7 +1046,7 @@
     document.querySelector("#disconnect").addEventListener("click", async () => {
       await runAction("disconnect", async () => {
         const targetToy = selectedToyId ? connector.getToy(selectedToyId) : null;
-        await targetToy?.disconnect();
+        if (targetToy) await connector.disconnect(selectedToyId);
         renderDeviceList();
         renderCommandQueue();
       });

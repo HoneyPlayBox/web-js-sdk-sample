@@ -1,0 +1,76 @@
+{
+  "title": "Web JS SDK",
+  "defaultPage": "honeyplaybox-js-sdk-overview",
+  "sections": [
+    {
+      "title": "Getting Started",
+      "pages": [
+        {
+          "id": "honeyplaybox-js-sdk-overview",
+          "title": "Overview",
+          "file": "overview.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-quick-start",
+          "title": "Quick Start",
+          "file": "quick-start.md"
+        }
+      ]
+    },
+    {
+      "title": "Device Integration",
+      "pages": [
+        {
+          "id": "honeyplaybox-js-sdk-device-flow",
+          "title": "Device Lifecycle",
+          "file": "device-flow.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-hid-lifecycle",
+          "title": "HID And Page Lifecycle",
+          "file": "hid-lifecycle.md"
+        }
+      ]
+    },
+    {
+      "title": "Execution",
+      "pages": [
+        {
+          "id": "honeyplaybox-js-sdk-executors",
+          "title": "Execution Modes",
+          "file": "executors.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-queues",
+          "title": "Queues",
+          "file": "queues.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-funscript",
+          "title": "Funscript",
+          "file": "funscript.md"
+        }
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        {
+          "id": "honeyplaybox-js-sdk-events",
+          "title": "Events",
+          "file": "events.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-api-reference",
+          "title": "API Reference",
+          "file": "api-reference.md"
+        },
+        {
+          "id": "honeyplaybox-js-sdk-integration-guide",
+          "title": "Integration Checklist",
+          "file": "integration-guide.md"
+        }
+      ]
+    }
+  ]
+}
